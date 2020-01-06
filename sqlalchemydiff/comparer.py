@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
+from typing import overload
 from copy import deepcopy
+from sqlalchemy import MetaData, Table, Column, ForeignKey
 
 from .util import (
     TablesInfo, DiffResult, InspectorFactory, CompareResult, IgnoreManager
 )
 
 
-def compare(left_uri, right_uri, ignores=None, ignores_sep=None):
+@overload
+def compare(left_uri:str, right_uri:str, ignores=None, ignores_sep=None) -> CompareResult:
     """Compare two databases, given two URIs.
 
     Compare two databases, ignoring whatever is specified in `ignores`.
@@ -104,6 +107,46 @@ def compare(left_uri, right_uri, ignores=None, ignores_sep=None):
 
     return result
 
+@overload
+def compare(left_metadata:MetaData, right_metadata:MetaData, ignores=None, ignores_sep=None) -> CompareResult:
+    """[summary]
+    
+    Arguments:
+        left_metadata {MetaData} -- [description]
+        right_metadata {MetaData} -- [description]
+    
+    Keyword Arguments:
+        ignores {[type]} -- [description] (default: {None})
+        ignores_sep {[type]} -- [description] (default: {None})
+    
+    Returns:
+        Tuple[CompareResult, dict] -- [description]
+    """
+    ignore_manager = IgnoreManager(ignores, separator=ignores_sep)
+    
+    # TODO - Overload _get_tables_info
+    tables_info = _get_tables_info(
+        left_metadata, right_metadata, ignore_manager.ignore_tables)
+
+    # TODO - Overload _get_info_dict
+    info = _get_info_dict(left_metadata, right_metadata, tables_info)
+
+    # TODO - Overload _get_tables_data
+    info['tables_data'] = _get_tables_data(
+        tables_info.common, left_metadata, right_metadata, ignore_manager
+    )
+
+    # TODO - Overload _get_enums_info
+    info['enums'] = _get_enums_info(
+        left_metadata,
+        right_metadata,
+        ignore_manager.get('*', 'enum'),
+    )
+
+    errors = _compile_errors(info)
+    result = _make_result(info, errors)
+
+    return result
 
 def _get_inspectors(left_uri, right_uri):
     left_inspector = InspectorFactory.from_uri(left_uri)
