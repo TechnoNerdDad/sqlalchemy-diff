@@ -128,7 +128,6 @@ def compare(left_metadata:MetaData, right_metadata:MetaData, ignores=None, ignor
     tables_info = _get_tables_info(
         left_metadata, right_metadata, ignore_manager.ignore_tables)
 
-    # TODO - Overload _get_info_dict
     info = _get_info_dict(left_metadata, right_metadata, tables_info)
 
     # TODO - Overload _get_tables_data
@@ -197,12 +196,12 @@ def _get_common_tables(tables_left:list, tables_right:list) -> list:
     return sorted(set(tables_left) & set(tables_right))
 
 
-def _get_info_dict(left_uri, right_uri, tables_info):
+def _get_info_dict(left_uri:(str, MetaData), right_uri:(str, MetaData), tables_info:TablesInfo) -> dict:
     """Create an empty stub for the `info` dict. """
     info = {
         'uris': {
-            'left': left_uri,
-            'right': right_uri,
+            'left': left_uri if isinstance(left_uri, str) else None,
+            'right': right_uri if isinstance(right_uri, str) else None,
         },
         'tables': {
             'left': tables_info.left,
