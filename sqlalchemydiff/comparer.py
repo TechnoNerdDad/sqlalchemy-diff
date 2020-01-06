@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-from typing import overload
+from typing import overload, Tuple
 from copy import deepcopy
 from sqlalchemy import MetaData, Table, Column, ForeignKey
+from sqlalchemy.engine.reflection import Inspector
 
 from .util import (
     TablesInfo, DiffResult, InspectorFactory, CompareResult, IgnoreManager
@@ -124,7 +125,6 @@ def compare(left_metadata:MetaData, right_metadata:MetaData, ignores=None, ignor
     """
     ignore_manager = IgnoreManager(ignores, separator=ignores_sep)
     
-    # TODO - Overload _get_tables_info
     tables_info = _get_tables_info(
         left_metadata, right_metadata, ignore_manager.ignore_tables)
 
@@ -148,16 +148,15 @@ def compare(left_metadata:MetaData, right_metadata:MetaData, ignores=None, ignor
 
     return result
 
-def _get_inspectors(left_uri, right_uri):
+def _get_inspectors(left_uri, right_uri) -> Tuple[Inspector, Inspector]:
     left_inspector = InspectorFactory.from_uri(left_uri)
     right_inspector = InspectorFactory.from_uri(right_uri)
     return left_inspector, right_inspector
 
-
-def _get_tables_info(left_inspector, right_inspector, ignore_tables):
+def _get_tables_info(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignore_tables:(set, list)) -> TablesInfo:
     """Get information about the differences at the table level. """
     tables_left, tables_right = _get_tables(
-        left_inspector, right_inspector, ignore_tables)
+        left_db_object, right_db_object, ignore_tables)
 
     tables_left_only, tables_right_only = _get_tables_diff(
         tables_left, tables_right)
@@ -168,30 +167,33 @@ def _get_tables_info(left_inspector, right_inspector, ignore_tables):
         left=tables_left, right=tables_right, left_only=tables_left_only,
         right_only=tables_right_only, common=tables_common)
 
-
-def _get_tables(left_inspector, right_inspector, ignore_tables):
+def _get_tables(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignore_tables:set) -> Tuple(list, list):
     """Get table names for both databases. ``ignore_tables`` are removed. """
-    tables_left = _get_tables_names(left_inspector, ignore_tables)
-    tables_right = _get_tables_names(right_inspector, ignore_tables)
+    tables_left = _get_tables_names(left_db_object, ignore_tables)
+    tables_right = _get_tables_names(right_db_object, ignore_tables)
     return tables_left, tables_right
 
-
-def _get_tables_names(inspector, ignore_tables):
+@overload
+def _get_tables_names(inspector:Inspector, ignore_tables:set) -> list:
     return sorted(set(inspector.get_table_names()) - ignore_tables)
 
+@overload
+def _get_tables_names(metadata:MetaData, ignore_tables:set) -> list:
+    return sorted(set(metadata.tables.keys()) - ignore_tables)
 
-def _get_tables_diff(tables_left, tables_right):
+
+def _get_tables_diff(tables_left:list, tables_right:list) -> list:
     return (
         _diff_table_lists(tables_left, tables_right),
         _diff_table_lists(tables_right, tables_left)
     )
 
 
-def _diff_table_lists(tables_left, tables_right):
+def _diff_table_lists(tables_left:list, tables_right:list) -> list:
     return sorted(set(tables_left) - set(tables_right))
 
 
-def _get_common_tables(tables_left, tables_right):
+def _get_common_tables(tables_left:list, tables_right:list) -> list:
     return sorted(set(tables_left) & set(tables_right))
 
 
