@@ -6,6 +6,7 @@ import json
 import six
 from sqlalchemy import inspect, create_engine
 from sqlalchemy_utils import create_database, drop_database, database_exists
+from sqlalchemy.engine.reflection import Inspector
 
 
 TablesInfo = namedtuple(
@@ -25,7 +26,7 @@ class InspectorFactory(object):
     """Create a :func:`sqlalchemy.inspect` instance for a given URI. """
 
     @classmethod
-    def from_uri(cls, uri):
+    def from_uri(cls, uri) -> Inspector:
         engine = create_engine(uri)
         inspector = inspect(engine)
         return inspector
