@@ -4,7 +4,7 @@ from uuid import uuid4
 import json
 
 import six
-from sqlalchemy import inspect, create_engine
+from sqlalchemy import inspect, create_engine, MetaData
 from sqlalchemy_utils import create_database, drop_database, database_exists
 from sqlalchemy.engine.reflection import Inspector
 
@@ -101,10 +101,13 @@ def get_temporary_uri(uri):
     return uri
 
 
-def prepare_schema_from_models(uri, sqlalchemy_base):
+def prepare_schema_from_models(uri, sqlalchemy_base, return_metadata=False):
     """Creates the database schema from the ``SQLAlchemy`` models. """
     engine = create_engine(uri)
     sqlalchemy_base.metadata.create_all(engine)
+    
+    if return_metadata is True:
+        return MetaData().reflect(bind=engine)
 
 
 class IgnoreManager:

@@ -2,7 +2,7 @@
 import json
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 
 from sqlalchemydiff.comparer import compare
 from sqlalchemydiff.util import (
@@ -52,6 +52,15 @@ def test_same_schema_is_the_same(uri_left, uri_right):
     assert result.is_match
 
 
+def test_same_schema_is_the_same_metadata(uri_left, uri_right):
+    left_metadata = prepare_schema_from_models(uri_left, Base_right, return_metadata=True)
+    right_metadata = prepare_schema_from_models(uri_right, Base_right, return_metadata=True)
+
+    result = compare(left_metadata=left_metadata, right_metadata=right_metadata)
+
+    assert result.is_match
+
+
 @pytest.mark.usefixtures("new_db_left")
 @pytest.mark.usefixtures("new_db_right")
 def test_schemas_are_different(uri_left, uri_right):
@@ -59,6 +68,17 @@ def test_schemas_are_different(uri_left, uri_right):
     prepare_schema_from_models(uri_right, Base_right)
 
     result = compare(uri_left, uri_right)
+
+    assert not result.is_match
+
+
+@pytest.mark.usefixtures("new_db_left")
+@pytest.mark.usefixtures("new_db_right")
+def test_schemas_are_different_metadata(uri_left, uri_right):
+    left_metadata = prepare_schema_from_models(uri_left, Base_right, return_metadata=True)
+    right_metadata = prepare_schema_from_models(uri_right, Base_right, return_metadata=True)
+
+    result = compare(left_metadata=left_metadata, right_metadata=right_metadata)
 
     assert not result.is_match
 
