@@ -9,8 +9,9 @@ from .util import (
 )
 
 
-@overload
-def compare(left_uri:str, right_uri:str, ignores=None, ignores_sep=None) -> CompareResult:
+def compare(left_uri: str=None, right_uri: str=None,
+            left_metadata: MetaData=None, right_metadata: MetaData=None,
+            ignores=None, ignores_sep=None) -> CompareResult:
     """Compare two databases, given two URIs.
 
     Compare two databases, ignoring whatever is specified in `ignores`.
@@ -68,6 +69,8 @@ def compare(left_uri:str, right_uri:str, ignores=None, ignores_sep=None) -> Comp
 
     :param string left_uri: The URI for the first (left) database.
     :param string right_uri: The URI for the second (right) database.
+    :param string left_metadata: The Metadata object for the first (left) database.
+    :param string right_metadata: The Metadata object for the second (right) database.
     :param iterable ignores:
         A list of strings in the format:
           * `table-name`
@@ -86,20 +89,24 @@ def compare(left_uri:str, right_uri:str, ignores=None, ignores_sep=None) -> Comp
     """
     ignore_manager = IgnoreManager(ignores, separator=ignores_sep)
 
-    left_inspector, right_inspector = _get_inspectors(left_uri, right_uri)
+    if left_metadata is not None and right_metadata is not None:
+        left_db_object = left_metadata
+        right_db_object = right_metadata
+    else:
+        left_db_object, right_db_object = _get_inspectors(left_uri, right_uri)
 
     tables_info = _get_tables_info(
-        left_inspector, right_inspector, ignore_manager.ignore_tables)
+        left_db_object, right_db_object, ignore_manager.ignore_tables)
 
     info = _get_info_dict(left_uri, right_uri, tables_info)
 
     info['tables_data'] = _get_tables_data(
-        tables_info.common, left_inspector, right_inspector, ignore_manager
+        tables_info.common, left_db_object, right_db_object, ignore_manager
     )
 
     info['enums'] = _get_enums_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         ignore_manager.get('*', 'enum'),
     )
 
@@ -108,44 +115,6 @@ def compare(left_uri:str, right_uri:str, ignores=None, ignores_sep=None) -> Comp
 
     return result
 
-@overload
-def compare(left_metadata:MetaData, right_metadata:MetaData, ignores=None, ignores_sep=None) -> CompareResult:
-    """[summary]
-    
-    Arguments:
-        left_metadata {MetaData} -- [description]
-        right_metadata {MetaData} -- [description]
-    
-    Keyword Arguments:
-        ignores {[type]} -- [description] (default: {None})
-        ignores_sep {[type]} -- [description] (default: {None})
-    
-    Returns:
-        Tuple[CompareResult, dict] -- [description]
-    """
-    ignore_manager = IgnoreManager(ignores, separator=ignores_sep)
-    
-    tables_info = _get_tables_info(
-        left_metadata, right_metadata, ignore_manager.ignore_tables)
-
-    info = _get_info_dict(left_metadata, right_metadata, tables_info)
-
-    # TODO - Overload _get_tables_data
-    info['tables_data'] = _get_tables_data(
-        tables_info.common, left_metadata, right_metadata, ignore_manager
-    )
-
-    # TODO - Overload _get_enums_info
-    info['enums'] = _get_enums_info(
-        left_metadata,
-        right_metadata,
-        ignore_manager.get('*', 'enum'),
-    )
-
-    errors = _compile_errors(info)
-    result = _make_result(info, errors)
-
-    return result
 
 def _get_inspectors(left_uri, right_uri) -> Tuple[Inspector, Inspector]:
     left_inspector = InspectorFactory.from_uri(left_uri)
@@ -166,7 +135,7 @@ def _get_tables_info(left_db_object:(Inspector, MetaData), right_db_object:(Insp
         left=tables_left, right=tables_right, left_only=tables_left_only,
         right_only=tables_right_only, common=tables_common)
 
-def _get_tables(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignore_tables:set) -> Tuple(list, list):
+def _get_tables(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignore_tables:set) -> Tuple[list, list]:
     """Get table names for both databases. ``ignore_tables`` are removed. """
     tables_left = _get_tables_names(left_db_object, ignore_tables)
     tables_right = _get_tables_names(right_db_object, ignore_tables)
@@ -174,11 +143,17 @@ def _get_tables(left_db_object:(Inspector, MetaData), right_db_object:(Inspector
 
 @overload
 def _get_tables_names(inspector:Inspector, ignore_tables:set) -> list:
-    return sorted(set(inspector.get_table_names()) - ignore_tables)
+    ...
 
 @overload
 def _get_tables_names(metadata:MetaData, ignore_tables:set) -> list:
-    return sorted(set(metadata.tables.keys()) - ignore_tables)
+    ...
+
+def _get_tables_names(inspector, ignore_tables) -> list:
+    if isinstance(inspector, MetaData):
+        return sorted(set(inspector.tables.keys()) - ignore_tables)
+    
+    return sorted(set(inspector.get_table_names()) - ignore_tables)
 
 
 def _get_tables_diff(tables_left:list, tables_right:list) -> list:
@@ -218,13 +193,13 @@ def _get_info_dict(left_uri:(str, MetaData), right_uri:(str, MetaData), tables_i
 
 
 def _get_tables_data(
-    tables_common, left_inspector, right_inspector, ignore_manager
-):
+    tables_common:list, left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignore_manager:IgnoreManager
+) -> dict:
     tables_data = {}
 
     for table_name in tables_common:
         table_data = _get_table_data(
-            left_inspector, right_inspector, table_name, ignore_manager
+            left_db_object, right_db_object, table_name, ignore_manager
         )
         tables_data[table_name] = table_data
 
@@ -232,42 +207,42 @@ def _get_tables_data(
 
 
 def _get_table_data(
-    left_inspector, right_inspector, table_name, ignore_manager
-):
+    left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), table_name:str, ignore_manager:IgnoreManager
+) -> dict:
     table_data = {}
 
     # foreign keys
     table_data['foreign_keys'] = _get_foreign_keys_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         table_name,
         ignore_manager.get(table_name, 'fk')
     )
 
     table_data['primary_keys'] = _get_primary_keys_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         table_name,
         ignore_manager.get(table_name, 'pk')
     )
-
+    
     table_data['indexes'] = _get_indexes_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         table_name,
         ignore_manager.get(table_name, 'idx')
     )
-
+    
     table_data['columns'] = _get_columns_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         table_name,
         ignore_manager.get(table_name, 'col')
     )
-
+    
     table_data['constraints'] = _get_constraints_info(
-        left_inspector,
-        right_inspector,
+        left_db_object,
+        right_db_object,
         table_name,
         ignore_manager.get(table_name, 'cons')
     )
@@ -275,7 +250,7 @@ def _get_table_data(
     return table_data
 
 
-def _diff_dicts(left, right):
+def _diff_dicts(left:dict, right:dict) -> DiffResult:
     """Makes the diff of two dictionaries, based on keys and values.
 
     :return:
@@ -314,10 +289,10 @@ def _diff_dicts(left, right):
 
 
 def _get_foreign_keys_info(
-    left_inspector, right_inspector, table_name, ignores
+    left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), table_name:str, ignores:list
 ):
-    left_fk_list = _get_foreign_keys(left_inspector, table_name)
-    right_fk_list = _get_foreign_keys(right_inspector, table_name)
+    left_fk_list = _get_foreign_keys(left_db_object, table_name)
+    right_fk_list = _get_foreign_keys(right_db_object, table_name)
 
     left_fk_list = _discard_ignores_by_name(left_fk_list, ignores)
     right_fk_list = _discard_ignores_by_name(right_fk_list, ignores)
@@ -328,24 +303,43 @@ def _get_foreign_keys_info(
 
     return _diff_dicts(left_fk, right_fk)
 
+@overload
+def _get_foreign_keys(inspector:Inspector, table_name:str) -> list:
+    ...
 
-def _get_foreign_keys(inspector, table_name):
+@overload
+def _get_foreign_keys(metadata:MetaData, table_name:str) -> list:
+    ...
+
+def _get_foreign_keys(inspector:Inspector, table_name:str) -> list:
+    if isinstance(inspector, MetaData):
+        return list(inspector.tables[table_name].foreign_keys)
+    
     return inspector.get_foreign_keys(table_name)
 
-
 def _get_primary_keys_info(
-    left_inspector, right_inspector, table_name, ignores
-):
-    left_pk_constraint = _get_primary_keys(left_inspector, table_name)
-    right_pk_constraint = _get_primary_keys(right_inspector, table_name)
+    left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), table_name:str, ignores:list
+) -> DiffResult:
+    left_pk_constraint = _get_primary_keys(left_db_object, table_name)
+    right_pk_constraint = _get_primary_keys(right_db_object, table_name)
 
+    if left_pk_constraint is not None and isinstance(left_db_object, MetaData):
+        left_pk_constraint = {
+            'name': left_pk_constraint.name,
+            'constrained_columns': left_pk_constraint.columns.keys()
+        }
+        right_pk_constraint = {
+            'name': right_pk_constraint.name,
+            'constrained_columns': right_pk_constraint.columns.keys()
+        }
+    
     pk_constraint_has_name = ('name' in left_pk_constraint and
-                              left_pk_constraint['name'] is not None)
+                            left_pk_constraint['name'] is not None)
 
     if pk_constraint_has_name:
         left_pk = ({left_pk_constraint['name']: left_pk_constraint}
-                   if _discard_ignores_by_name([left_pk_constraint], ignores)
-                   else {})
+                    if _discard_ignores_by_name([left_pk_constraint], ignores)
+                    else {})
         right_pk = ({right_pk_constraint['name']: right_pk_constraint}
                     if _discard_ignores_by_name([right_pk_constraint], ignores)
                     else {})
@@ -363,13 +357,24 @@ def _get_primary_keys_info(
     return _diff_dicts(left_pk, right_pk)
 
 
-def _get_primary_keys(inspector, table_name):
+@overload
+def _get_primary_keys(inspector:Inspector, table_name:str) -> list:
+    ...
+
+@overload
+def _get_primary_keys(metadata:MetaData, table_name:str) -> list:
+    ...
+
+def _get_primary_keys(inspector:Inspector, table_name:str) -> list:
+    if isinstance(inspector, MetaData):
+        return inspector.tables[table_name].primary_key
+    
     return inspector.get_pk_constraint(table_name)
 
 
-def _get_indexes_info(left_inspector, right_inspector, table_name, ignores):
-    left_index_list = _get_indexes(left_inspector, table_name)
-    right_index_list = _get_indexes(right_inspector, table_name)
+def _get_indexes_info(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), table_name:str, ignores:list) -> DiffResult:
+    left_index_list = _get_indexes(left_db_object, table_name)
+    right_index_list = _get_indexes(right_db_object, table_name)
 
     left_index_list = _discard_ignores_by_name(left_index_list, ignores)
     right_index_list = _discard_ignores_by_name(right_index_list, ignores)
@@ -381,13 +386,24 @@ def _get_indexes_info(left_inspector, right_inspector, table_name, ignores):
     return _diff_dicts(left_index, right_index)
 
 
-def _get_indexes(inspector, table_name):
+@overload
+def _get_indexes(inspector: Inspector, table_name:str) -> list:
+    ...
+
+@overload
+def _get_indexes(metadata:MetaData, table_name:str) -> list:
+    ...
+
+def _get_indexes(inspector: Inspector, table_name:str) -> list:
+    if isinstance(inspector, MetaData):
+        return list(inspector.tables[table_name].indexes)
+    
     return inspector.get_indexes(table_name)
 
 
-def _get_columns_info(left_inspector, right_inspector, table_name, ignores):
-    left_columns_list = _get_columns(left_inspector, table_name)
-    right_columns_list = _get_columns(right_inspector, table_name)
+def _get_columns_info(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), table_name:str, ignores:list) -> DiffResult:
+    left_columns_list = _get_columns(left_db_object, table_name)
+    right_columns_list = _get_columns(right_db_object, table_name)
 
     left_columns_list = _discard_ignores_by_name(left_columns_list, ignores)
     right_columns_list = _discard_ignores_by_name(right_columns_list, ignores)
@@ -403,14 +419,27 @@ def _get_columns_info(left_inspector, right_inspector, table_name, ignores):
     return _diff_dicts(left_columns, right_columns)
 
 
-def _get_columns(inspector, table_name):
+@overload
+def _get_columns(inspector:Inspector, table_name:str) -> list:
+    ...
+
+@overload
+def _get_columns(metadata:MetaData, table_name:str) -> list:
+    ...
+
+def _get_columns(inspector:Inspector, table_name:str) -> list:
+    #asdf = (key, value for key, value in col.items() if key in ['name', 'type', 'nullable', 'default', 'attrs'])
+    if isinstance(inspector, MetaData):
+        return list(map(lambda x: ({key: value for key, value in x.__dict__.items() if key in ['name', 'type', 'nullable', 'default', 'attrs']}), inspector.tables[table_name].columns))
+    
+    
     return inspector.get_columns(table_name)
 
 
-def _get_constraints_info(left_inspector, right_inspector,
-                          table_name, ignores):
-    left_constraints_list = _get_constraints_data(left_inspector, table_name)
-    right_constraints_list = _get_constraints_data(right_inspector, table_name)
+def _get_constraints_info(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData),
+                          table_name:str, ignores:list):
+    left_constraints_list = _get_constraints_data(left_db_object, table_name)
+    right_constraints_list = _get_constraints_data(right_db_object, table_name)
 
     left_constraints_list = _discard_ignores_by_name(left_constraints_list,
                                                      ignores)
@@ -426,7 +455,19 @@ def _get_constraints_info(left_inspector, right_inspector,
     return _diff_dicts(left_constraints, right_constraints)
 
 
-def _get_constraints_data(inspector, table_name):
+@overload
+def _get_constraints_data(inspector:Inspector, table_name:str) -> list:
+    ...
+
+@overload
+def _get_constraints_data(metadata:MetaData, table_name:str) -> list:
+    ...
+
+def _get_constraints_data(inspector:Inspector, table_name:str) -> list:
+    if isinstance(inspector, MetaData):
+        # CheckConstraints currently unsupported in MetaData
+        return []
+    
     try:
         return inspector.get_check_constraints(table_name)
     except (AttributeError, NotImplementedError):  # pragma: no cover
@@ -435,9 +476,9 @@ def _get_constraints_data(inspector, table_name):
         return []
 
 
-def _get_enums_info(left_inspector, right_inspector, ignores):
-    left_enums_list = _get_enums_data(left_inspector)
-    right_enums_list = _get_enums_data(right_inspector)
+def _get_enums_info(left_db_object:(Inspector, MetaData), right_db_object:(Inspector, MetaData), ignores:list) -> DiffResult:
+    left_enums_list = _get_enums_data(left_db_object)
+    right_enums_list = _get_enums_data(right_db_object)
 
     left_enums_list = _discard_ignores_by_name(left_enums_list, ignores)
     right_enums_list = _discard_ignores_by_name(right_enums_list, ignores)
@@ -449,7 +490,18 @@ def _get_enums_info(left_inspector, right_inspector, ignores):
     return _diff_dicts(left_enums, right_enums)
 
 
-def _get_enums_data(inspector):
+@overload
+def _get_enums_data(inspector:Inspector) -> list:
+    ...
+
+@overload
+def _get_enums_data(metadata:MetaData) -> list:
+    ...
+
+def _get_enums_data(inspector:Inspector) -> list:
+    if isinstance(inspector, MetaData):
+        return []
+    
     try:
         # as of 1.2.0, PostgreSQL dialect only; see PGInspector
         return inspector.get_enums()
